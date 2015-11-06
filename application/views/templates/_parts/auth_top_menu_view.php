@@ -8,13 +8,13 @@
                 <span class="icon-bar"></span>
                 <span class="icon-bar"></span>
             </button>
-            <a class="navbar-brand" href="#">baCI</a>
+            <?php echo anchor('/', $website->title, 'class="navbar-brand"');?>
         </div>
         <div id="navbar" class="collapse navbar-collapse">
             <ul class="nav navbar-nav">
-                <li class="active"><a href="#">Home</a></li>
-                <li><a href="#about">About</a></li>
+                <li><?php echo anchor('dashboard','Home');?></li>
                 <li><a href="#contact">Contact</a></li>
+                <li><?php echo anchor('dashboard/about','About');?></li>
             </ul>
             <ul class="nav navbar-nav navbar-right">
                 <li class="dropdown">
@@ -28,6 +28,8 @@
                         {
                             echo '<li>'.anchor('dashboard/users', 'Users').'</li>';
                             echo '<li>'.anchor('dashboard/users/create', 'Add user').'</li>';
+                            echo '<li role="separator" class="divider"></li>';
+                            echo '<li>'.anchor('dashboard/master','Main settings').'</li>';
 
                         }
                         ?>

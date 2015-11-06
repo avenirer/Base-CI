@@ -34,6 +34,8 @@ class User extends MY_Controller {
             $password = $this->input->post('password');
             if ($this->ion_auth->login($username, $password, $remember))
             {
+                $this->load->library('rat');
+                $this->rat->log('User logged in',1);
                 redirect('dashboard');
             }
             else
@@ -57,6 +59,8 @@ class User extends MY_Controller {
 
     public function logout()
     {
+        $this->load->library('rat');
+        $this->rat->log('User logged out',1);
         $this->ion_auth->logout();
         redirect('user/login');
     }
