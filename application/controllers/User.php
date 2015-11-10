@@ -11,6 +11,10 @@ class User extends MY_Controller {
 
     public function index()
     {
+        if($this->ion_auth->logged_in()===FALSE)
+        {
+            redirect('user/login');
+        }
         $this->load->view('welcome_message');
     }
 
