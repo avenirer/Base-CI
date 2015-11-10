@@ -568,7 +568,10 @@ class MY_Model extends CI_Model
     {
         if($this->soft_deletes===TRUE)
         {
-            $this->_where_trashed();
+            if(debug_backtrace()[1]['function']!='force_delete')
+            {
+                $this->_where_trashed();
+            }
         }
 
         if(is_array($field_or_array))
@@ -691,7 +694,7 @@ class MY_Model extends CI_Model
      */
     public function delete($where = NULL)
     {
-        if(!empty($before_delete) || !empty($before_soft_delete) || !empty($after_delete) || !empty($after_soft_delete) || ($this->soft_deletes === TRUE))
+        if(!empty($this->before_delete) || !empty($this->before_soft_delete) || !empty($this->after_delete) || !empty($this->after_soft_delete) || ($this->soft_deletes === TRUE))
         {
             $to_update = array();
             if(isset($where))
@@ -703,11 +706,11 @@ class MY_Model extends CI_Model
             {
                 $to_update[] = array($this->primary_key => $row->{$this->primary_key});
             }
-            if(!empty($before_soft_delete))
+            if(!empty($this->before_soft_delete))
             {
                 $to_update = $this->trigger('before_soft_delete',$to_update);
             }
-            if(!empty($before_delete))
+            if(!empty($this->before_delete))
             {
                 $to_update = $this->trigger('before_delete',$to_update);
             }
@@ -738,7 +741,7 @@ class MY_Model extends CI_Model
             if($this->_database->delete($this->table))
             {
                 $affected_rows = $this->_database->affected_rows();
-                if(!empty($after_delete))
+                if(!empty($this->after_delete))
                 {
                     $to_update['affected_rows'] = $affected_rows;
                     $to_update = $this->trigger('after_delete',$to_update);
@@ -1075,7 +1078,7 @@ class MY_Model extends CI_Model
                         }
 
                     }
-                    if($request['parameters']['fields']=='*count*')
+                    if(array_key_exists('fields',$request['parameters']) && ($request['parameters']['fields']=='*count*'))
                     {
                         $sub_results->group_by('`' . $foreign_table . '`.`' . $foreign_key . '`');
                     }
