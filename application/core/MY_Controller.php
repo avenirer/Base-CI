@@ -33,9 +33,12 @@ class MY_Controller extends CI_Controller {
             exit;
         }
         if($this->website->status == '0') {
-            $this->load->library('ion_auth');
-            if (!$this->ion_auth->is_admin()) {
-                redirect('offline', 'refresh', 503);
+            if($this->router->class!=='user')
+            {
+                $this->load->library('ion_auth');
+                if (!$this->ion_auth->is_admin()) {
+                    redirect('offline', 'refresh', 503);
+                }
             }
         }
     }
