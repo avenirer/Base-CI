@@ -15,7 +15,7 @@ class User extends MY_Controller {
         {
             redirect('user/login');
         }
-        $this->load->view('welcome_message');
+        redirect('dashboard');
     }
 
     public function login()
