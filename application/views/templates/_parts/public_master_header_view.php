@@ -9,6 +9,7 @@
         <title><?php echo $page_title;?></title>
         <meta name="description" value="<?php echo $page_description;?>" />
 
+        <script src="<?php echo site_url('assets/js/jquery-2.1.4.min.js');?>"></script>
         <!-- Bootstrap -->
         <link href="<?php echo site_url('assets/css/bootstrap.min.css');?>" rel="stylesheet">
         <link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/font-awesome/4.4.0/css/font-awesome.min.css">
