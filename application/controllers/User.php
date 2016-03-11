@@ -77,6 +77,32 @@ class User extends MY_Controller {
         }
     }
 
+    public function forgot()
+    {
+        $this->data['title'] = "Forgot email";
+        $this->load->library('form_validation');
+        $this->form_validation->set_rules('username', 'Username', 'trim|required');
+        if($this->form_validation->run() === FALSE)
+        {
+            $this->render('user/forgot_view');
+        }
+        else
+        {
+            $username = $this->input->post('username');
+
+            if($this->ion_auth->forgotten_password($username))
+            {
+                $_SESSION['auth_message'] = 'A reset link has been sent to your email';
+            }
+            else
+            {
+                $_SESSION['auth_message'] = $this->ion_auth->errors();
+            }
+            $this->session->mark_as_flash('auth_message');
+            redirect('user/login');
+        }
+    }
+
     public function _gravatar()
     {
         if($this->form_validation->valid_email($_SESSION['email']))
