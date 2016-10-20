@@ -152,6 +152,8 @@ class Users extends Auth_Controller
         $this->form_validation->set_rules('last_name','Last name','trim');
         $this->form_validation->set_rules('company','Company','trim');
         $this->form_validation->set_rules('phone','Phone','trim');
+	$this->form_validation->set_rules('password','Password','min_length[6]');
+        $this->form_validation->set_rules('password_confirm','Password confirmation','matches[password]');
 
         if($this->form_validation->run()===FALSE)
         {
