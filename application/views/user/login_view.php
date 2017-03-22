@@ -3,7 +3,6 @@
     <div class="row">
         <h1>Login</h1>
         <div class="col-lg-4 col-lg-offset-4">
-            <?php echo $_SESSION['auth_message'];?>
             <?php echo form_open('',array('class'=>'form-horizontal'));?>
             <div class="form-group">
                 <?php echo form_label('Username','username');?>
