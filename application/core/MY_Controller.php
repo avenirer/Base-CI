@@ -13,7 +13,7 @@ class MY_Controller extends CI_Controller {
         $this->data['website'] = $this->website;
 
         $this->data['page_title'] = $this->website->page_title;
-        $this->data['page_description'] = 'CI_App';
+        $this->data['page_description'] = $this->website->page_title;
         $this->data['before_closing_head'] = '';
         $this->data['before_closing_body'] = '';
 
