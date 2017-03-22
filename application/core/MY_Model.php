@@ -54,6 +54,8 @@
  *              By default, MY_Model uses the files to cache result.
  *              If you want to change the way it stores the cache, you can change the $cache_driver property to whatever CodeIgniter cache driver you want to use.
  *              Also, with $cache_prefix, you can prefix the name of the caches. by default any cache made by MY_Model starts with 'mm' + _ + "name chosen for cache"
+ *          $this->delete_cache_on_save = FALSE
+ *              If you use caching often and you don't want to be forced to delete cache manually, you can enable $this->delete_cache_on_save by setting it to TRUE. If set to TRUE the model will auto-delete all cache related to the model's table whenever you write/update/delete data from that table.
  *          $this->pagination_delimiters = array('<span>','</span>');
  *              If you know you will use the paginate() method, you can change the delimiters between the pages links
  *          $this->pagination_arrows = array('&lt;','&gt;');
@@ -140,6 +142,7 @@ class MY_Model extends CI_Model
     public $cache_driver = 'file';
     public $cache_prefix = 'mm';
     protected $_cache = array();
+    public $delete_cache_on_save = FALSE;
 
     /*pagination*/
     public $next_page;
@@ -188,6 +191,12 @@ class MY_Model extends CI_Model
         $this->_fetch_table();
         $this->pagination_delimiters = (isset($this->pagination_delimiters)) ? $this->pagination_delimiters : array('<span>','</span>');
         $this->pagination_arrows = (isset($this->pagination_arrows)) ? $this->pagination_arrows : array('&lt;','&gt;');
+        /* These below are implementation examples for before_create and before_update triggers.
+        Their respective functions - add_creator() and add_updater() - can be found at the end of the model.
+        They add user id on create and update. If you comment this out don't forget to do the same for the methods()
+        $this->before_create[]='add_creator';
+        $this->before_update[]='add_updater';
+        */
     }
 
     public function _get_table_fields()
@@ -235,17 +244,17 @@ class MY_Model extends CI_Model
         $data_as_array = (is_object($data)) ? (array)$data : $data;
 
         $new_data = array();
-        $multi = FALSE;
-        foreach($data as $element)
-        {
-            $multi = (is_array($element)) ? TRUE : FALSE;
-        }
+        $multi = $this->is_multidimensional($data);
         if($multi===FALSE)
         {
             foreach ($data_as_array as $field => $value)
             {
                 if (in_array($field, $can_fill)) {
                     $new_data[$field] = $value;
+                }
+                else
+                {
+                     show_error('MY_Model: Unknown column ('.$field.') in table: ('.$this->table.').');
                 }
             }
         }
@@ -258,10 +267,28 @@ class MY_Model extends CI_Model
                     if (in_array($field, $can_fill)) {
                         $new_data[$key][$field] = $value;
                     }
+                    else
+                    {
+                        show_error('MY_Model: Unknown column '.$field.' in table: '.$this->table);
+                    }
                 }
             }
         }
         return $new_data;
+    }
+
+    /*
+     * public function _prep_after_write()
+     * this function simply deletes the cache related to the model's table if $this->delete_cache_on_save is set to TRUE
+     * It should be called by any "save" method
+     */
+    public function _prep_after_write()
+    {
+        if($this->delete_cache_on_save===TRUE)
+        {
+            $this->delete_cache('*');
+        }
+        return TRUE;
     }
 
     public function _prep_before_read()
@@ -274,6 +301,7 @@ class MY_Model extends CI_Model
         // let's join the subqueries...
         $data = $this->join_temporary_results($data);
         $this->_database->reset_query();
+        $this->_requested = array();
         if(isset($this->return_as_dropdown) && $this->return_as_dropdown == 'dropdown')
         {
             foreach($data as $row)
@@ -387,11 +415,7 @@ class MY_Model extends CI_Model
         $data = $this->_prep_before_write($data);
 
         //now let's see if the array is a multidimensional one (multiple rows insert)
-        $multi = FALSE;
-        foreach($data as $element)
-        {
-            $multi = (is_array($element)) ? TRUE : FALSE;
-        }
+        $multi = $this->is_multidimensional($data);
 
         // if the array is not a multidimensional one...
         if($multi === FALSE)
@@ -403,6 +427,7 @@ class MY_Model extends CI_Model
             $data = $this->trigger('before_create',$data);
             if($this->_database->insert($this->table, $data))
             {
+                $this->_prep_after_write();
                 $id = $this->_database->insert_id();
                 $return = $this->trigger('after_create',$id);
                 return $return;
@@ -425,12 +450,34 @@ class MY_Model extends CI_Model
                     $return[] = $this->_database->insert_id();
                 }
             }
+            $this->_prep_after_write();
             $after_create = array();
             foreach($return as $id)
             {
                 $after_create[] = $this->trigger('after_create', $id);
             }
             return $after_create;
+        }
+        return FALSE;
+    }
+
+    /*
+     * public function is_multidimensional($array)
+     * Verifies if an array is multidimensional or not;
+     * @param array $array
+     * @return bool return TRUE if the array is a multidimensional one
+     */
+    public function is_multidimensional($array)
+    {
+        if(is_array($array))
+        {
+            foreach($array as $element)
+            {
+                if(is_array($element))
+                {
+                    return TRUE;
+                }
+            }
         }
         return FALSE;
     }
@@ -460,11 +507,7 @@ class MY_Model extends CI_Model
         $data = $this->_prep_before_write($data);
 
         //now let's see if the array is a multidimensional one (multiple rows insert)
-        $multi = FALSE;
-        foreach($data as $element)
-        {
-            $multi = (is_array($element)) ? TRUE : FALSE;
-        }
+        $multi = $this->is_multidimensional($data);
 
         // if the array is not a multidimensional one...
         if($multi === FALSE)
@@ -495,6 +538,7 @@ class MY_Model extends CI_Model
             {
                 if($this->_database->update($this->table, $data))
                 {
+                    $this->_prep_after_write();
                     $affected = $this->_database->affected_rows();
                     $return = $this->trigger('after_update',$affected);
                     return $return;
@@ -504,6 +548,7 @@ class MY_Model extends CI_Model
             {
                 if($this->_database->set($data, null, FALSE)->update($this->table))
                 {
+                    $this->_prep_after_write();
                     $affected = $this->_database->affected_rows();
                     $return = $this->trigger('after_update',$affected);
                     return $return;
@@ -547,6 +592,7 @@ class MY_Model extends CI_Model
                 }
             }
             $affected = $rows;
+            $this->_prep_after_write();
             $return = $this->trigger('after_update',$affected);
             return $return;
         }
@@ -568,18 +614,15 @@ class MY_Model extends CI_Model
     {
         if($this->soft_deletes===TRUE)
         {
-            if(debug_backtrace()[1]['function']!='force_delete')
-            {
+            $backtrace = debug_backtrace(); #fix for lower PHP 5.4 version
+            if($backtrace[1]['function']!='force_delete'){
                 $this->_where_trashed();
             }
         }
 
         if(is_array($field_or_array))
         {
-            $multi = FALSE;
-            foreach($field_or_array as $element) {
-                $multi = (is_array($element)) ? TRUE : FALSE;
-            }
+            $multi = $this->is_multidimensional($field_or_array);
             if($multi === TRUE)
             {
                 foreach ($field_or_array as $where)
@@ -708,11 +751,17 @@ class MY_Model extends CI_Model
             }
             if(!empty($this->before_soft_delete))
             {
-                $to_update = $this->trigger('before_soft_delete',$to_update);
+                foreach($to_update as &$row)
+                {
+                    $row = $this->trigger('before_soft_delete',$row);
+                }
             }
             if(!empty($this->before_delete))
             {
-                $to_update = $this->trigger('before_delete',$to_update);
+                foreach($to_update as &$row)
+                {
+                    $row = $this->trigger('before_delete',$row);
+                }
             }
         }
         if(isset($where))
@@ -722,7 +771,7 @@ class MY_Model extends CI_Model
         $affected_rows = 0;
         if($this->soft_deletes === TRUE)
         {
-            if(isset($to_update))
+            if(isset($to_update)&& count($to_update) > 0)
             {
 
                 foreach($to_update as &$row)
@@ -732,6 +781,7 @@ class MY_Model extends CI_Model
                 }
                 $affected_rows = $this->_database->update_batch($this->table, $to_update, $this->primary_key);
                 $to_update['affected_rows'] = $affected_rows;
+                $this->_prep_after_write();
                 $this->trigger('after_soft_delete',$to_update);
             }
             return $affected_rows;
@@ -747,6 +797,7 @@ class MY_Model extends CI_Model
                     $to_update = $this->trigger('after_delete',$to_update);
                     $affected_rows = $to_update;
                 }
+                $this->_prep_after_write();
                 return $affected_rows;
             }
         }
@@ -767,6 +818,7 @@ class MY_Model extends CI_Model
         }
         if($this->_database->delete($this->table))
         {
+            $this->_prep_after_write();
             return $this->_database->affected_rows();
         }
         return FALSE;
@@ -787,6 +839,7 @@ class MY_Model extends CI_Model
         }
         if($affected_rows = $this->_database->update($this->table,array($this->_deleted_at_field=>NULL)))
         {
+            $this->_prep_after_write();
             return $affected_rows;
         }
         return FALSE;
@@ -814,6 +867,33 @@ class MY_Model extends CI_Model
         return FALSE;
     }
 
+    public function _get_joined($requested)
+    {
+        $this->_database->join($this->_relationships[$requested['request']]['foreign_table'], $this->table.'.'.$this->_relationships[$requested['request']]['local_key'].' = '.$this->_relationships[$requested['request']]['foreign_table'].'.'.$this->_relationships[$requested['request']]['foreign_key']);
+        $the_select = '';
+        if(!empty($requested['parameters']))
+        {
+            if(array_key_exists('fields',$requested['parameters']))
+            {
+                $fields = explode(',', $requested['parameters']['fields']);
+                $sub_select = array();
+                foreach ($fields as $field)
+                {
+                    $sub_select[] = ((strpos($field,'.')===FALSE) ? '`' . $this->_relationships[$requested['request']]['foreign_table'] . '`.`' . trim($field) . '`' : trim($field)).' AS '.$requested['request'].'_'.trim($field);
+                }
+                $the_select = implode(',', $sub_select);
+
+            }
+            else
+            {
+                $the_select = $this->_relationships[$requested['request']]['foreign_table'] . '.*';
+            }
+        }
+        $this->_database->select($the_select);
+        unset($this->_requested[$requested['request']]);
+    }
+
+
     /**
      * public function get()
      * Retrieves one row from table.
@@ -822,17 +902,12 @@ class MY_Model extends CI_Model
      */
     public function get($where = NULL)
     {
-        if(isset($this->_cache) && !empty($this->_cache))
-        {
-            $this->load->driver('cache');
-            $cache_name = $this->_cache['cache_name'];
-            $seconds = $this->_cache['seconds'];
-            $data = $this->cache->{$this->cache_driver}->get($cache_name);
-        }
+        $data = $this->_get_from_cache();
 
         if(isset($data) && $data !== FALSE)
         {
             $this->_database->reset_query();
+            if(isset($this->_cache)) unset($this->_cache);
             return $data;
         }
         else
@@ -844,28 +919,37 @@ class MY_Model extends CI_Model
             }
             if(!empty($this->_requested))
             {
+
                 foreach($this->_requested as $requested)
                 {
-                    $this->_database->select($this->_relationships[$requested['request']]['local_key']);
+                    if(isset($requested['parameters']['join']))
+                    {
+                        $this->_get_joined($requested);
+                    }
+                    else
+                    {
+                        $this->_database->select($this->_relationships[$requested['request']]['local_key']);
+                    }
                 }
             }
             if(isset($where))
             {
                 $this->where($where);
             }
+            elseif($this->soft_deletes===TRUE)
+            {
+                $this->_where_trashed();
+            }
             $this->limit(1);
             $query = $this->_database->get($this->table);
+            $this->_reset_trashed();
             if ($query->num_rows() == 1)
             {
                 $row = $query->row_array();
                 $row = $this->trigger('after_get', $row);
                 $row =  $this->_prep_after_read(array($row),FALSE);
                 $row = $row[0];
-                if(isset($cache_name) && isset($seconds))
-                {
-                    $this->cache->{$this->cache_driver}->save($cache_name, $data, $seconds);
-                    $this->_reset_cache($cache_name);
-                }
+                $this->_write_to_cache($row);
                 return $row;
             }
             else
@@ -883,18 +967,15 @@ class MY_Model extends CI_Model
      */
     public function get_all($where = NULL)
     {
-        if(isset($this->_cache) && !empty($this->_cache))
-        {
-            $this->load->driver('cache');
-            $cache_name = $this->_cache['cache_name'];
-            $seconds = $this->_cache['seconds'];
-            $data = $this->cache->{$this->cache_driver}->get($cache_name);
-        }
+
+        $data = $this->_get_from_cache();
 
         if(isset($data) && $data !== FALSE)
         {
             $this->_database->reset_query();
+            if(isset($this->_cache)) unset($this->_cache);
             return $data;
+
         }
         else
         {
@@ -915,20 +996,24 @@ class MY_Model extends CI_Model
             {
                 foreach($this->_requested as $requested)
                 {
-                    $this->_database->select($this->_relationships[$requested['request']]['local_key']);
+                    if(isset($requested['parameters']['join']))
+                    {
+                        $this->_get_joined($requested);
+                    }
+                    else
+                    {
+                        $this->_database->select($this->_relationships[$requested['request']]['local_key']);
+                    }
                 }
             }
             $query = $this->_database->get($this->table);
+            $this->_reset_trashed();
             if($query->num_rows() > 0)
             {
                 $data = $query->result_array();
                 $data = $this->trigger('after_get', $data);
                 $data = $this->_prep_after_read($data,TRUE);
-                if(isset($cache_name) && isset($seconds))
-                {
-                    $this->cache->{$this->cache_driver}->save($cache_name, $data, $seconds);
-                    $this->_reset_cache($cache_name);
-                }
+                $this->_write_to_cache($data);
                 return $data;
             }
             else
@@ -939,19 +1024,24 @@ class MY_Model extends CI_Model
     }
 
     /**
-     * public function count()
+     * public function count_rows()
      * Retrieves number of rows from table.
      * @param null $where
      * @return integer
      */
-    public function count($where = NULL)
+    public function count_rows($where = NULL)
     {
         if(isset($where))
         {
             $this->where($where);
         }
+        elseif($this->soft_deletes===TRUE)
+        {
+            $this->_where_trashed();
+        }
         $this->_database->from($this->table);
         $number_rows = $this->_database->count_all_results();
+        $this->_reset_trashed();
         return $number_rows;
     }
 
@@ -976,14 +1066,24 @@ class MY_Model extends CI_Model
             {
                 foreach($arguments as $argument)
                 {
-                    $requested_operations = explode('|',$argument);
-                    foreach($requested_operations as $operation)
+                    if(is_array($argument))
                     {
-                        $elements = explode(':', $operation, 2);
-                        if (sizeof($elements) == 2) {
-                            $parameters[$elements[0]] = $elements[1];
-                        } else {
-                            show_error('MY_Model: Parameters for with_*() method must be of the form: "...->with_*(\'where:...|fields:...\')"');
+                        foreach($argument as $k => $v)
+                        {
+                            $parameters[$k] = $v;
+                        }
+                    }
+                    else
+                    {
+                        $requested_operations = explode('|',$argument);
+                        foreach($requested_operations as $operation)
+                        {
+                            $elements = explode(':', $operation, 2);
+                            if (sizeof($elements) == 2) {
+                                $parameters[$elements[0]] = $elements[1];
+                            } else {
+                                show_error('MY_Model: Parameters for with_*() method must be of the form: "...->with_*(\'where:...|fields:...\')"');
+                            }
                         }
                     }
                 }
@@ -1018,11 +1118,13 @@ class MY_Model extends CI_Model
     protected function join_temporary_results($data)
     {
         $order_by = array();
+        $order_inside_array = array();
+        //$order_inside = '';
         foreach($this->_requested as $requested_key => $request)
         {
             $pivot_table = NULL;
             $relation = $this->_relationships[$request['request']];
-            $this->load->model($relation['foreign_model']);
+            $this->load->model($relation['foreign_model'],$relation['foreign_model_name']);
             $foreign_key = $relation['foreign_key'];
             $local_key = $relation['local_key'];
             $foreign_table = $relation['foreign_table'];
@@ -1034,6 +1136,25 @@ class MY_Model extends CI_Model
                 $pivot_local_key = $relation['pivot_local_key'];
                 $pivot_foreign_key = $relation['pivot_foreign_key'];
                 $get_relate = $relation['get_relate'];
+            }
+
+            if(array_key_exists('order_inside',$request['parameters']))
+            {
+                //$order_inside = $request['parameters']['order_inside'];
+                $elements = explode(',', $request['parameters']['order_inside']);
+                foreach($elements as $element)
+                {
+                    $order = explode(' ',$element);
+                    if(sizeof($order)==2)
+                    {
+                        $order_inside_array[] = array(trim($order[0]), trim($order[1]));
+                    }
+                    else
+                    {
+                        $order_inside_array[] = array(trim($order[0]), 'desc');
+                    }
+                }
+
             }
 
 
@@ -1053,7 +1174,7 @@ class MY_Model extends CI_Model
             }
             if(!isset($pivot_table))
             {
-                $sub_results = $this->{$relation['foreign_model']};
+                $sub_results = $this->{$relation['foreign_model_name']};
                 $select = array();
                 $select[] = '`'.$foreign_table.'`.`'.$foreign_key.'`';
                 if(!empty($request['parameters']))
@@ -1071,7 +1192,7 @@ class MY_Model extends CI_Model
                             $fields = explode(',', $request['parameters']['fields']);
                             foreach ($fields as $field)
                             {
-                                $select[] = '`' . $foreign_table . '`.`' . trim($field) . '`';
+                                $select[] = (strpos($field,'.')===FALSE) ? '`' . $foreign_table . '`.`' . trim($field) . '`' : trim($field);
                             }
                             $the_select = implode(',', $select);
                             $sub_results = (isset($the_select)) ? $sub_results->fields($the_select) : $sub_results;
@@ -1087,7 +1208,35 @@ class MY_Model extends CI_Model
                         $the_where = array_key_exists('where', $request['parameters']) ? 'where' : 'non_exclusive_where';
                     }
                     $sub_results = isset($the_where) ? $sub_results->where($request['parameters'][$the_where],NULL,NULL,FALSE,FALSE,TRUE) : $sub_results;
+
+                    if(isset($order_inside_array))
+                    {
+                        foreach($order_inside_array as $order_by_inside)
+                        {
+                            $sub_results = $sub_results->order_by($order_by_inside[0],$order_by_inside[1]);
+                        }
+                    }
+
+                    //Add nested relation
+                    if(array_key_exists('with',$request['parameters']))
+                    {
+                        // Do we have many nested relation
+                        if(is_array($request['parameters']['with']) && isset($request['parameters']['with'][0])&& is_array($request['parameters']['with'][0]))
+                        {
+                            foreach ($request['parameters']['with'] as $with)
+                            {
+                                $with_relation = array_shift($with);
+                                $sub_results->with($with_relation, array($with));
+                            }
+                        }
+                        else // single nested relation
+                        {
+                            $with_relation = array_shift($request['parameters']['with']);
+                            $sub_results->with($with_relation,array($request['parameters']['with']));
+                        }
+                    }
                 }
+
                 $sub_results = $sub_results->where($foreign_key, $local_key_values)->get_all();
             }
             else
@@ -1102,7 +1251,7 @@ class MY_Model extends CI_Model
                     {
                         if($request['parameters']['fields'] == '*count*')
                         {
-                            $this->_database->select('COUNT(`'.$foreign_table.'`*) as counted_rows, `' . $foreign_table . '`.`' . $foreign_key . '`', FALSE);
+                            $this->_database->select('COUNT(`'.$foreign_table.'`.`'.$foreign_key.'`) as counted_rows, `' . $foreign_table . '`.`' . $foreign_key . '`', FALSE);
                         }
                         else
                         {
@@ -1110,7 +1259,7 @@ class MY_Model extends CI_Model
                             $fields = explode(',', $request['parameters']['fields']);
                             $select = array();
                             foreach ($fields as $field) {
-                                $select[] = '`' . $foreign_table . '`.`' . trim($field) . '`';
+                                $select[] = (strpos($field,'.')===FALSE) ? '`' . $foreign_table . '`.`' . trim($field) . '`' : trim($field);
                             }
                             $the_select = implode(',', $select);
                             $this->_database->select($the_select);
@@ -1125,6 +1274,18 @@ class MY_Model extends CI_Model
                     }
                 }
                 $this->_database->where_in($pivot_table.'.'.$pivot_local_key,$local_key_values);
+
+                if(!empty($order_inside_array))
+                {
+                    $order_inside_str = '';
+                    foreach($order_inside_array as $order_by_inside)
+                    {
+                        $order_inside_str .= (strpos($order_by_inside[0],',')=== false) ? '`'.$foreign_table.'`.`'.$order_by_inside[0].' '.$order_by_inside[1] : $order_by_inside[0].' '.$order_by_inside[1];
+                        $order_inside_str .= ',';
+                    }
+                    $order_inside_str = rtrim($order_inside_str, ",");
+                    $this->_database->order_by(rtrim($order_inside_str,","));
+                }
                 $sub_results = $this->_database->get($foreign_table)->result_array();
                 $this->_database->reset_query();
             }
@@ -1137,10 +1298,10 @@ class MY_Model extends CI_Model
                     $the_foreign_key = $result_array[$foreign_key];
                     if(isset($pivot_table))
                     {
-                        $the_local_key = $result_array[singular($this->table) . '_' . $local_key];
+                        $the_local_key = $result_array[$pivot_local_key];
                         if(isset($get_relate) and $get_relate === TRUE)
                         {
-                            $subs[$the_local_key][$the_foreign_key] = $this->{$relation['foreign_model']}->where($local_key, $result[$local_key])->get();
+                            $subs[$the_local_key][$the_foreign_key] = $this->{$relation['foreign_model']}->where($foreign_key, $result[$foreign_key])->get();
                         }
                         else
                         {
@@ -1193,7 +1354,7 @@ class MY_Model extends CI_Model
             }
             unset($this->_requested[$requested_key]);
         }
-        if($order_by)
+        if(!empty($order_by))
         {
             foreach($order_by as $field => $row)
             {
@@ -1235,11 +1396,16 @@ class MY_Model extends CI_Model
                 {
                     foreach($this->{$option} as $key => $relation)
                     {
+                        $single_query=false;
                         if(!is_array($relation))
                         {
                             $foreign_model = $relation;
-                            $foreign_model_name = strtolower($foreign_model);
-                            $this->load->model($foreign_model_name);
+                            $model = $this->_parse_model_dir($foreign_model);
+                            $foreign_model = $model['foreign_model'];
+                            //$model_dir = $model['model_dir'];
+                            $foreign_model_name = $model['foreign_model_name'];
+
+                            $this->load->model($foreign_model, $foreign_model_name);
                             $foreign_table = $this->{$foreign_model_name}->table;
                             $foreign_key = $this->{$foreign_model_name}->primary_key;
                             $local_key = $this->primary_key;
@@ -1250,19 +1416,23 @@ class MY_Model extends CI_Model
                         }
                         else
                         {
-                            if($this->_is_assoc($relation))
+                            if($this->is_assoc($relation))
                             {
                                 $foreign_model = $relation['foreign_model'];
+                                $model = $this->_parse_model_dir($foreign_model);
+                                $foreign_model = $model['model_dir'].$model['foreign_model'];
+                                $foreign_model_name = $model['foreign_model_name'];
+
                                 if(array_key_exists('foreign_table',$relation))
                                 {
                                     $foreign_table = $relation['foreign_table'];
                                 }
                                 else
                                 {
-                                    $foreign_model_name = strtolower($foreign_model);
-                                    $this->load->model($foreign_model_name);
+                                    $this->load->model($foreign_model, $foreign_model_name);
                                     $foreign_table = $this->{$foreign_model_name}->table;
                                 }
+
                                 $foreign_key = $relation['foreign_key'];
                                 $local_key = $relation['local_key'];
                                 if($option=='has_many_pivot')
@@ -1272,13 +1442,20 @@ class MY_Model extends CI_Model
                                     $pivot_foreign_key = (array_key_exists('pivot_foreign_key',$relation)) ? $relation['pivot_foreign_key'] : $foreign_table.'_'.$foreign_key;
                                     $get_relate = (array_key_exists('get_relate',$relation) && ($relation['get_relate']===TRUE)) ? TRUE : FALSE;
                                 }
+                                if($option=='has_one' && isset($relation['join']) && $relation['join']===true)
+                                {
+                                    $single_query=true;
+                                }
                             }
                             else
                             {
                                 $foreign_model = $relation[0];
-                                $foreign_model_name = strtolower($foreign_model);
-                                $this->load->model($foreign_model_name);
-                                $foreign_table = $this->{$foreign_model_name}->table;
+                                $model = $this->_parse_model_dir($foreign_model);
+                                $foreign_model = $model['model_dir'].$model['foreign_model'];
+                                $foreign_model_name = $model['foreign_model_name'];
+
+                                $this->load->model($foreign_model);
+                                $foreign_table = $this->{$foreign_model}->table;
                                 $foreign_key = $relation[1];
                                 $local_key = $relation[2];
                                 if($option=='has_many_pivot')
@@ -1298,7 +1475,7 @@ class MY_Model extends CI_Model
                             $pivot_table = $tables[0].'_'.$tables[1];
                         }
 
-                        $this->_relationships[$key] = array('relation' => $option, 'relation_key' => $key, 'foreign_model' => strtolower($foreign_model), 'foreign_table' => $foreign_table, 'foreign_key' => $foreign_key, 'local_key' => $local_key);
+                        $this->_relationships[$key] = array('relation' => $option, 'relation_key' => $key, 'foreign_model' => strtolower($foreign_model), 'foreign_model_name'=>strtolower($foreign_model_name), 'foreign_table' => $foreign_table, 'foreign_key' => $foreign_key, 'local_key' => $local_key);
                         if($option == 'has_many_pivot')
                         {
                             $this->_relationships[$key]['pivot_table'] = $pivot_table;
@@ -1306,10 +1483,15 @@ class MY_Model extends CI_Model
                             $this->_relationships[$key]['pivot_foreign_key'] = $pivot_foreign_key;
                             $this->_relationships[$key]['get_relate'] = $get_relate;
                         }
+                        if($single_query===true)
+                        {
+                            $this->_relationships[$key]['joined'] = true;
+                        }
                     }
                 }
             }
         }
+
     }
 
     /** END RELATIONSHIPS */
@@ -1332,11 +1514,11 @@ class MY_Model extends CI_Model
     }
 
     /**
-     * public function reset($connection_group = NULL)
+     * public function reset_connection($connection_group = NULL)
      * Resets the connection to the default used for all the model
      * @return obj
      */
-    public function reset()
+    public function reset_connection()
     {
         if(isset($connection_group))
         {
@@ -1368,11 +1550,19 @@ class MY_Model extends CI_Model
         }
         return $data;
     }
-
+    /**
+     * private function _reset_trashed()
+     * Sets $_trashed to default 'without'
+     */
+    private function _reset_trashed()
+    {
+        $this->_trashed = 'without';
+        return $this;
+    }
 
     /**
      * public function with_trashed()
-     * Sets $_trashed to TRUE
+     * Sets $_trashed to with
      */
     public function with_trashed()
     {
@@ -1381,8 +1571,18 @@ class MY_Model extends CI_Model
     }
 
     /**
+     * public function without_trashed()
+     * Sets $_trashed to without
+     */
+    public function without_trashed()
+    {
+        $this->_trashed = 'without';
+        return $this;
+    }
+
+    /**
      * public function with_trashed()
-     * Sets $_trashed to TRUE
+     * Sets $_trashed to only
      */
     public function only_trashed()
     {
@@ -1395,15 +1595,15 @@ class MY_Model extends CI_Model
         switch($this->_trashed)
         {
             case 'only' :
-                $this->_database->where($this->_deleted_at_field.' IS NOT NULL', NULL, FALSE);
+                $this->_database->where($this->table.'.'.$this->_deleted_at_field.' IS NOT NULL', NULL, FALSE);
                 break;
             case 'without' :
-                $this->_database->where($this->_deleted_at_field.' IS NULL', NULL, FALSE);
+                $this->_database->where($this->table.'.'.$this->_deleted_at_field.' IS NULL', NULL, FALSE);
                 break;
             case 'with' :
                 break;
         }
-        $this->_trashed = 'without';
+        //$this->_trashed = ''; issue #208...
         return $this;
     }
 
@@ -1501,9 +1701,38 @@ class MY_Model extends CI_Model
         return $this;
     }
 
+    protected function _get_from_cache($cache_name = NULL)
+    {
+        if(isset($cache_name) || (isset($this->_cache) && !empty($this->_cache)))
+        {
+            $this->load->driver('cache');
+            $cache_name = isset($cache_name) ? $cache_name : $this->_cache['cache_name'];
+            $data = $this->cache->{$this->cache_driver}->get($cache_name);
+            return $data;
+        }
+    }
+
+    protected function _write_to_cache($data, $cache_name = NULL)
+    {
+        if(isset($cache_name) || (isset($this->_cache) && !empty($this->_cache)))
+        {
+            $this->load->driver('cache');
+            $cache_name = isset($cache_name) ? $cache_name : $this->_cache['cache_name'];
+            $seconds = $this->_cache['seconds'];
+            if(isset($cache_name) && isset($seconds))
+            {
+                $this->cache->{$this->cache_driver}->save($cache_name, $data, $seconds);
+                $this->_reset_cache($cache_name);
+                return TRUE;
+            }
+            return FALSE;
+        }
+    }
+
     public function set_cache($string, $seconds = 86400)
     {
         $prefix = (strlen($this->cache_prefix)>0) ? $this->cache_prefix.'_' : '';
+        $prefix .= $this->table.'_';
         $this->_cache = array('cache_name' => $prefix.$string,'seconds'=>$seconds);
         return $this;
     }
@@ -1521,6 +1750,7 @@ class MY_Model extends CI_Model
     {
         $this->load->driver('cache');
         $prefix = (strlen($this->cache_prefix)>0) ? $this->cache_prefix.'_' : '';
+        $prefix .= $this->table.'_';
         if(isset($string) && (strpos($string,'*') === FALSE))
         {
             $this->cache->{$this->cache_driver}->delete($prefix . $string);
@@ -1536,7 +1766,7 @@ class MY_Model extends CI_Model
                     break;
                 }
             }
-            $mask = (isset($string)) ? $path.$prefix.$string : $path.$prefix.'*';
+            $mask = (isset($string)) ? $path.$prefix.$string : $path.$this->cache_prefix.'_*';
             array_map('unlink', glob($mask));
         }
         return $this;
@@ -1584,9 +1814,17 @@ class MY_Model extends CI_Model
      */
     private function _set_connection()
     {
-        //unset($this->db);
-        isset($this->_database_connection) ? $this->load->database($this->_database_connection) : $this->load->database();
-        $this->_database = $this->db;
+        if(isset($this->_database_connection))
+        {
+            $this->_database = $this->load->database($this->_database_connection,TRUE);
+        }
+        else
+        {
+            $this->load->database();
+            $this->_database =$this->db;
+        }
+        // This may not be required
+        return $this;
     }
 
     /*
@@ -1726,7 +1964,7 @@ class MY_Model extends CI_Model
     }
     private function _get_table_name($model_name)
     {
-        $table_name = plural(preg_replace('/(_m|_model)?$/', '', strtolower($model_name)));
+        $table_name = plural(preg_replace('/(_m|_model|_mdl)?$/', '', strtolower($model_name)));
         return $table_name;
     }
 
@@ -1744,20 +1982,42 @@ class MY_Model extends CI_Model
             $this->with($relation,$arguments);
             return $this;
         }
+        if (method_exists($this->_database, $method)) {
+                call_user_func_array(array($this->_database, $method), $arguments);
+                return $this;
+        }
         $parent_class = get_parent_class($this);
         if ($parent_class !== FALSE && !method_exists($parent_class, $method) && !method_exists($this,$method))
         {
-            echo 'No method with that name ('.$method.') in MY_Model or CI_Model.';
+            $msg = 'The method "'.$method.'" does not exist in '. get_class($this) .' or MY_Model or CI_Model.';
+            show_error($msg,EXIT_UNKNOWN_METHOD,'Method Not Found');
         }
     }
 
     private function _build_sorter($data, $field, $order_by, $sort_by = 'DESC')
     {
         usort($data, function($a, $b) use ($field, $order_by, $sort_by) {
-            return strtoupper($sort_by) ==  "DESC" ? ($a[$field][$order_by] < $b[$field][$order_by]) : ($a[$field][$order_by] > $b[$field][$order_by]);
+            $array_a = isset($a[$field]) ? $this->object_to_array($a[$field]) : NULL;
+            $array_b = isset($b[$field]) ? $this->object_to_array($b[$field]) : NULL;
+            return strtoupper($sort_by) ==  "DESC" ?
+                ((isset($array_a[$order_by]) && isset($array_b[$order_by])) ? ($array_a[$order_by] < $array_b[$order_by]) : (!isset($array_a) ? 1 : -1))
+                : ((isset($array_a[$order_by]) && isset($array_b[$order_by])) ? ($array_a[$order_by] > $array_b[$order_by]) : (!isset($array_b) ? 1: -1));
         });
 
         return $data;
+    }
+
+    public function object_to_array( $object )
+    {
+        if( !is_object( $object ) && !is_array( $object ) )
+        {
+            return $object;
+        }
+        if( is_object( $object ) )
+        {
+            $object = get_object_vars( $object );
+        }
+        return array_map( array($this,'object_to_array'), $object );
     }
 
 
@@ -1766,7 +2026,50 @@ class MY_Model extends CI_Model
      * @param array $array
      * @return bool
      */
-    private function _is_assoc(array $array) {
+    protected function is_assoc(array $array) {
         return (bool)count(array_filter(array_keys($array), 'is_string'));
     }
+
+    /**
+     * private function _parse_model_dir($foreign_model)
+     *
+     * Parse model and model folder
+     * @param $foreign_model
+     * @return $data
+     */
+    private function _parse_model_dir($foreign_model)
+    {
+        $data['foreign_model']      = $foreign_model;
+        $data['model_dir']          = '';
+
+        $full_model = explode('/', $data['foreign_model']);
+        if ($full_model) {
+
+            $data['foreign_model'] = end($full_model);
+            $data['model_dir'] = str_replace($data['foreign_model'], null, implode('/', $full_model));
+        }
+
+        $foreign_model_name = str_replace('/','_',$data['model_dir'].$data['foreign_model']);
+
+        $data['foreign_model_name'] = strtolower($foreign_model_name);
+
+        return $data;
+    }
+
+    
+    /*
+    public function add_creator($data)
+    {
+    	$data['created_by'] = $_SESSION['user_id'];
+    	return $data;
+    }
+    */
+
+    /*
+    public function add_updater($data)
+    {
+	    $data['updated_by'] = $_SESSION['user_id'];
+	    return $data;
+    }
+    */
 }
